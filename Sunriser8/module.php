@@ -86,7 +86,6 @@ class Sunriser8 extends IPSModule
                 $active = (bool) $value;
                 $api->setMaintenance($active);
                 $this->SetValue('Maintenance', $active);
-                $this->UpdateVisualizationValue(['key' => 'Maintenance', 'value' => $active]);
 
             } elseif (in_array($ident, ['Thunder', 'Moon', 'Clouds', 'Rain'], true)) {
                 $active  = (bool) $value;
@@ -95,7 +94,6 @@ class Sunriser8 extends IPSModule
                     $api->setWeatherEffect($program, strtolower($ident), $active);
                 }
                 $this->SetValue($ident, $active);
-                $this->UpdateVisualizationValue(['key' => $ident, 'value' => $active]);
 
             } elseif (preg_match('/^CH(\d+)_Program$/', $ident, $m)) {
                 $ch      = (int) $m[1];
@@ -103,6 +101,8 @@ class Sunriser8 extends IPSModule
                 $api->setChannelWeatherProgram($ch, $program);
                 $this->SetValue($ident, $program);
             }
+
+            $this->UpdateVisualizationTile($this->buildHTML());
         } catch (Throwable $e) {
             $this->LogMessage('SR8 RequestAction ' . $ident . ': ' . $e->getMessage(), KL_ERROR);
         }
@@ -127,10 +127,10 @@ class Sunriser8 extends IPSModule
                 $toggles = $api->getWeatherToggles($program);
                 foreach (['thunder' => 'Thunder', 'moon' => 'Moon', 'clouds' => 'Clouds', 'rain' => 'Rain'] as $k => $ident) {
                     $this->SetValue($ident, $toggles[$k]);
-                    $this->UpdateVisualizationValue(['key' => $ident, 'value' => $toggles[$k]]);
                 }
             }
 
+            $this->UpdateVisualizationTile($this->buildHTML());
             $this->SetStatus(102);
         } catch (Throwable $e) {
             $this->LogMessage('SR8 UpdateAll: ' . $e->getMessage(), KL_ERROR);
@@ -158,20 +158,17 @@ class Sunriser8 extends IPSModule
             $raw = (int) ($pwms[(string) $i] ?? $pwms[$i] ?? 0);
             $pct = (int) round($raw / 255 * 100);
             $this->SetValue("CH{$i}_Brightness", $pct);
-            $this->UpdateVisualizationValue(['key' => "CH{$i}_Brightness", 'value' => $pct]);
         }
 
         if (isset($state['maintenance'])) {
             $active = (bool) $state['maintenance'];
             $this->SetValue('Maintenance', $active);
-            $this->UpdateVisualizationValue(['key' => 'Maintenance', 'value' => $active]);
         }
 
         foreach (['temperature', 'temp', 'water_temp'] as $key) {
             if (isset($state[$key])) {
                 $temp = (float) $state[$key];
                 $this->SetValue('Temperature', $temp);
-                $this->UpdateVisualizationValue(['key' => 'Temperature', 'value' => $temp]);
                 break;
             }
         }
