@@ -82,7 +82,7 @@ class Sunriser8 extends IPSModule
 
     // ─── Public actions ───────────────────────────────────────────────────────
 
-    public function RequestAction(string $ident, mixed $value): void
+    public function RequestAction($ident, $value): void
     {
         try {
             $api = $this->createApi();
