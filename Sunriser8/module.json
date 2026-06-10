@@ -1,0 +1,10 @@
+{
+  "id": "b3f4c1d2-e5a6-4789-abcd-ef0123456789",
+  "name": "SunRiser 8",
+  "type": 1,
+  "vendor": "LEDaquaristik",
+  "aliases": [],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": ["RequestAction"]
+}

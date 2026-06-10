@@ -1,0 +1,16 @@
+{
+  "author": "Martin Wilkens",
+  "name": "SunRiser 8",
+  "version": "1.0",
+  "build": 1,
+  "date": "",
+  "url": "https://github.com/mwilkens780/IPSymcon-Sunriser8",
+  "modules": [
+    {
+      "id": "b3f4c1d2-e5a6-4789-abcd-ef0123456789",
+      "parentRequirements": [],
+      "childRequirements": [],
+      "aliases": []
+    }
+  ]
+}

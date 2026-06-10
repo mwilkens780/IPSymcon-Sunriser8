@@ -1,0 +1,52 @@
+{
+  "elements": [
+    {
+      "type": "ValidationTextBox",
+      "name": "host",
+      "caption": "Hostname / IP-Adresse",
+      "validate": "^[a-zA-Z0-9._-]+$"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "port",
+      "caption": "Port",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "channels",
+      "caption": "Anzahl Kanaele (PWM-Ausgaenge)",
+      "minimum": 1,
+      "maximum": 8
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "update_interval",
+      "caption": "Aktualisierungsintervall (Sekunden)",
+      "minimum": 5,
+      "suffix": "s"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Jetzt aktualisieren",
+      "onClick": "SR8_UpdateAll($id);"
+    },
+    {
+      "type": "Label",
+      "caption": "──────────────────────────────────────────────────"
+    },
+    {
+      "type": "Label",
+      "caption": "Tipp: Die Visualisierungs-Kachel (Variable 'Aquarium') ueber 4+ Spalten und 3+ Zeilen in der Tile-Visualization aufspannen fuer die beste Darstellung."
+    }
+  ],
+  "status": [
+    { "code": 101, "icon": "inactive", "caption": "Instanz wird erstellt" },
+    { "code": 102, "icon": "active",   "caption": "Verbunden" },
+    { "code": 200, "icon": "error",    "caption": "Fehler – Details im IPS-Log" },
+    { "code": 201, "icon": "inactive", "caption": "Nicht konfiguriert – Hostname eintragen" }
+  ]
+}
