@@ -1,10 +1,12 @@
 {
-  "id": "b3f4c1d2-e5a6-4789-abcd-ef0123456789",
-  "name": "SunRiser 8",
-  "type": 1,
-  "vendor": "LEDaquaristik",
-  "aliases": [],
-  "parentRequirements": [],
-  "childRequirements": [],
-  "implemented": ["RequestAction"]
+    "id": "{C2A4F1D3-E6B7-4890-ABCD-EF1234567890}",
+    "name": "SunRiser 8",
+    "type": 3,
+    "vendor": "LEDaquaristik",
+    "aliases": [],
+    "dependencies": [],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "SR8"
 }
