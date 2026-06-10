@@ -101,8 +101,6 @@ class Sunriser8 extends IPSModule
                 $api->setChannelWeatherProgram($ch, $program);
                 $this->SetValue($ident, $program);
             }
-
-            $this->UpdateVisualizationTile($this->buildHTML());
         } catch (Throwable $e) {
             $this->LogMessage('SR8 RequestAction ' . $ident . ': ' . $e->getMessage(), KL_ERROR);
         }
@@ -130,7 +128,6 @@ class Sunriser8 extends IPSModule
                 }
             }
 
-            $this->UpdateVisualizationTile($this->buildHTML());
             $this->SetStatus(102);
         } catch (Throwable $e) {
             $this->LogMessage('SR8 UpdateAll: ' . $e->getMessage(), KL_ERROR);
