@@ -32,7 +32,7 @@
     {
       "type": "Button",
       "caption": "Jetzt aktualisieren",
-      "onClick": "SR8_UpdateAll($id);"
+      "onClick": "SR8_RefreshWeatherPrograms($id); SR8_UpdateAll($id);"
     },
     {
       "type": "Label",

@@ -66,7 +66,23 @@ class Sunriser8 extends IPSModule
         $this->SetTimerInterval('UpdateTimer', $interval > 0 ? $interval * 1000 : 0);
         $this->SetStatus(102);
 
+        $this->RefreshWeatherPrograms();
         $this->UpdateAll();
+    }
+
+    /**
+     * Discover weather program names via a full device backup dump.
+     * Deliberately NOT called from the 30s UpdateAll poll loop — the
+     * SunRiser's embedded webserver struggles under repeated /backup load.
+     */
+    public function RefreshWeatherPrograms(): void
+    {
+        try {
+            $api = $this->createApi();
+            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames()));
+        } catch (Throwable $e) {
+            $this->LogMessage('SR8 RefreshWeatherPrograms: ' . $e->getMessage(), KL_ERROR);
+        }
     }
 
     // ─── HTML-SDK: initial tile render ────────────────────────────────────────
@@ -132,8 +148,6 @@ class Sunriser8 extends IPSModule
             $config = $api->getModuleConfig($channels);
             $this->applyConfig($config, $channels);
 
-            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames()));
-
             $program = $this->ReadAttributeString('weather_program');
             if ($program !== '') {
                 $toggles = $api->getWeatherToggles($program);
@@ -158,7 +172,7 @@ class Sunriser8 extends IPSModule
      */
     private function pushValue(string $key, $value): void
     {
-        $this->UpdateVisualizationValue(['key' => $key, 'value' => $value]);
+        $this->UpdateVisualizationValue(json_encode(['key' => $key, 'value' => $value]));
     }
 
     private function createApi(): Sunriser8API
@@ -373,7 +387,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-siz
 <script>
 var state = {$initJson};
 
-window.handleMessage = function(data) {
+window.handleMessage = function(raw) {
+  var data = JSON.parse(raw);
   var key = data.key, val = data.value;
   if (key === 'Temperature') {
     document.getElementById('temp_display').textContent = '🌡 ' + (val > 0 ? val.toFixed(1) + ' °C' : '– °C');
