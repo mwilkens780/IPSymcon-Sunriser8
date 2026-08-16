@@ -17,10 +17,11 @@ class Sunriser8 extends IPSModule
         $this->RegisterPropertyInteger('update_interval', 30);
         $this->RegisterPropertyInteger('channels',        4);
 
-        $this->RegisterAttributeString('channel_names',   '{}');
-        $this->RegisterAttributeString('channel_colors',  '{}');
-        $this->RegisterAttributeString('weather_program', '');
-        $this->RegisterAttributeString('day_curves',      '{}');
+        $this->RegisterAttributeString('channel_names',    '{}');
+        $this->RegisterAttributeString('channel_colors',   '{}');
+        $this->RegisterAttributeString('weather_program',  '');
+        $this->RegisterAttributeString('weather_programs', '[]');
+        $this->RegisterAttributeString('day_curves',       '{}');
 
         $this->RegisterTimer('UpdateTimer', 0, 'SR8_UpdateAll($_IPS[\'TARGET\']);');
 
@@ -86,6 +87,7 @@ class Sunriser8 extends IPSModule
                 $active = (bool) $value;
                 $api->setMaintenance($active);
                 $this->SetValue('Maintenance', $active);
+                $this->pushValue('Maintenance', $active);
 
             } elseif (in_array($ident, ['Thunder', 'Moon', 'Clouds', 'Rain'], true)) {
                 $active  = (bool) $value;
@@ -94,12 +96,22 @@ class Sunriser8 extends IPSModule
                     $api->setWeatherEffect($program, strtolower($ident), $active);
                 }
                 $this->SetValue($ident, $active);
+                $this->pushValue($ident, $active);
 
             } elseif (preg_match('/^CH(\d+)_Program$/', $ident, $m)) {
                 $ch      = (int) $m[1];
                 $program = trim((string) $value);
                 $api->setChannelWeatherProgram($ch, $program);
                 $this->SetValue($ident, $program);
+                $this->pushValue($ident, $program);
+
+            } elseif (preg_match('/^CH(\d+)_TestPwm$/', $ident, $m)) {
+                $ch  = (int) $m[1];
+                $pwm = max(0, min(255, (int) $value));
+                $api->setPwms([(string) $ch => $pwm]);
+                $pct = (int) round($pwm / 255 * 100);
+                $this->SetValue("CH{$ch}_Brightness", $pct);
+                $this->pushValue("CH{$ch}_Brightness", $pct);
             }
         } catch (Throwable $e) {
             $this->LogMessage('SR8 RequestAction ' . $ident . ': ' . $e->getMessage(), KL_ERROR);
@@ -120,11 +132,14 @@ class Sunriser8 extends IPSModule
             $config = $api->getModuleConfig($channels);
             $this->applyConfig($config, $channels);
 
+            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames()));
+
             $program = $this->ReadAttributeString('weather_program');
             if ($program !== '') {
                 $toggles = $api->getWeatherToggles($program);
                 foreach (['thunder' => 'Thunder', 'moon' => 'Moon', 'clouds' => 'Clouds', 'rain' => 'Rain'] as $k => $ident) {
                     $this->SetValue($ident, $toggles[$k]);
+                    $this->pushValue($ident, $toggles[$k]);
                 }
             }
 
@@ -136,6 +151,15 @@ class Sunriser8 extends IPSModule
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Push a live value update to an already-open visualization tile.
+     * Received client-side by window.handleMessage({key, value}) in buildHTML().
+     */
+    private function pushValue(string $key, $value): void
+    {
+        $this->UpdateVisualizationValue(['key' => $key, 'value' => $value]);
+    }
 
     private function createApi(): Sunriser8API
     {
@@ -155,17 +179,20 @@ class Sunriser8 extends IPSModule
             $raw = (int) ($pwms[(string) $i] ?? $pwms[$i] ?? 0);
             $pct = (int) round($raw / 255 * 100);
             $this->SetValue("CH{$i}_Brightness", $pct);
+            $this->pushValue("CH{$i}_Brightness", $pct);
         }
 
         if (isset($state['maintenance'])) {
             $active = (bool) $state['maintenance'];
             $this->SetValue('Maintenance', $active);
+            $this->pushValue('Maintenance', $active);
         }
 
         foreach (['temperature', 'temp', 'water_temp'] as $key) {
             if (isset($state[$key])) {
                 $temp = (float) $state[$key];
                 $this->SetValue('Temperature', $temp);
+                $this->pushValue('Temperature', $temp);
                 break;
             }
         }
@@ -182,6 +209,7 @@ class Sunriser8 extends IPSModule
 
             $prog = (string) ($config["pwm#{$i}#weather"] ?? '');
             $this->SetValue("CH{$i}_Program", $prog);
+            $this->pushValue("CH{$i}_Program", $prog);
 
             if ($i === 1 && $prog !== '') {
                 $this->WriteAttributeString('weather_program', $prog);
@@ -204,9 +232,10 @@ class Sunriser8 extends IPSModule
     private function buildHTML(): string
     {
         $channels = $this->ReadPropertyInteger('channels');
-        $names    = json_decode($this->ReadAttributeString('channel_names'),  true) ?: [];
-        $colors   = json_decode($this->ReadAttributeString('channel_colors'), true) ?: [];
-        $curves   = json_decode($this->ReadAttributeString('day_curves'),     true) ?: [];
+        $names    = json_decode($this->ReadAttributeString('channel_names'),   true) ?: [];
+        $colors   = json_decode($this->ReadAttributeString('channel_colors'),  true) ?: [];
+        $curves   = json_decode($this->ReadAttributeString('day_curves'),      true) ?: [];
+        $programs = json_decode($this->ReadAttributeString('weather_programs'), true) ?: [];
 
         $temp        = (float) $this->GetValue('Temperature');
         $maintenance = (bool)  $this->GetValue('Maintenance');
@@ -268,6 +297,28 @@ class Sunriser8 extends IPSModule
         $maintData = $maintenance ? '1' : '0';
         $tempStr   = $temp > 0 ? number_format($temp, 1) . ' °C' : '– °C';
 
+        // Per-channel settings: weather profile assignment + temporary PWM test override
+        $settingsHtml = '';
+        for ($i = 1; $i <= $channels; $i++) {
+            $name           = htmlspecialchars($names[$i] ?? "K{$i}", ENT_QUOTES);
+            $currentProgram = (string) $this->GetValue("CH{$i}_Program");
+            $currentPwm     = (int) round(((int) $this->GetValue("CH{$i}_Brightness")) / 100 * 255);
+
+            $optionsHtml = "<option value=''" . ($currentProgram === '' ? ' selected' : '') . ">–</option>";
+            foreach ($programs as $p) {
+                $pEsc = htmlspecialchars((string) $p, ENT_QUOTES);
+                $sel  = ($p === $currentProgram) ? ' selected' : '';
+                $optionsHtml .= "<option value='{$pEsc}'{$sel}>{$pEsc}</option>";
+            }
+
+            $settingsHtml .= "<div class='setting-row'>"
+                . "<span class='setting-name'>{$name}</span>"
+                . "<select id='prog{$i}' onchange=\"requestAction('CH{$i}_Program', this.value)\">{$optionsHtml}</select>"
+                . "<input id='pwm{$i}' type='number' min='0' max='255' value='{$currentPwm}'>"
+                . "<button onclick=\"requestAction('CH{$i}_TestPwm', parseInt(document.getElementById('pwm{$i}').value)||0)\">Test</button>"
+                . "</div>";
+        }
+
         return <<<HTML
 <!DOCTYPE html>
 <html>
@@ -292,6 +343,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-siz
 .badge-on{background:#1e4a6e;border-color:#3a8abf;color:#7ec8f0}
 .badge-off{background:#1a2535;border-color:#2a3a50;color:#4a6a8a}
 .badge-warn{background:#4a2010;border-color:#8a4020;color:#f08060}
+.settings-panel{display:flex;flex-direction:column;gap:4px;border-top:1px solid #1e3a5f;padding-top:6px;overflow-y:auto}
+.setting-row{display:flex;align-items:center;gap:6px}
+.setting-name{flex:1;font-size:11px;color:#8aa8c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.setting-row select{flex:1;min-width:0;background:#1a2535;color:#d0e8ff;border:1px solid #2a3a50;border-radius:4px;font-size:11px;padding:2px 4px}
+.setting-row input{width:48px;background:#1a2535;color:#d0e8ff;border:1px solid #2a3a50;border-radius:4px;font-size:11px;padding:2px 4px}
+.setting-row button{background:#1e4a6e;color:#7ec8f0;border:1px solid #3a8abf;border-radius:4px;font-size:11px;padding:2px 8px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -310,7 +367,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-siz
 <div class="weather-row">
   {$badgesHtml}
   <span id="badge_Maintenance" class="{$maintCls}" data-active="{$maintData}" onclick="toggleMaintenance()">🔧 Wartung</span>
+  <span class="badge badge-off" onclick="toggleSettings()">⚙ Einstellungen</span>
 </div>
+<div id="settings_panel" class="settings-panel" style="display:none">{$settingsHtml}</div>
 <script>
 var state = {$initJson};
 
@@ -330,8 +389,18 @@ window.handleMessage = function(data) {
     var pct = document.getElementById('pct' + ch);
     if (bar) bar.style.height = val + '%';
     if (pct) pct.textContent = val + '%';
+  } else if (key.indexOf('_Program') > 0) {
+    var chP = key.replace('CH','').replace('_Program','');
+    var sel = document.getElementById('prog' + chP);
+    if (sel) sel.value = val;
   }
 };
+
+function toggleSettings() {
+  var p = document.getElementById('settings_panel');
+  if (!p) return;
+  p.style.display = (p.style.display === 'none') ? 'flex' : 'none';
+}
 
 function updateBadge(key, active, label, clsOn, clsOff) {
   var el = document.getElementById('badge_' + key);

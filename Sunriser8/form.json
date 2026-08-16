@@ -40,7 +40,7 @@
     },
     {
       "type": "Label",
-      "caption": "Tipp: Die Visualisierungs-Kachel (Variable 'Aquarium') ueber 4+ Spalten und 3+ Zeilen in der Tile-Visualization aufspannen fuer die beste Darstellung."
+      "caption": "Tipp: Die Visualisierungs-Kachel (Variable 'Aquarium') ueber 4+ Spalten und 3+ Zeilen in der Tile-Visualization aufspannen fuer die beste Darstellung. Ueber das '⚙ Einstellungen'-Feld in der Kachel koennen pro Kanal Wetterprofil und ein temporaerer Test-PWM-Wert gesetzt werden."
     }
   ],
   "status": [

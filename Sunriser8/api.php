@@ -140,6 +140,23 @@ class Sunriser8API
         $this->setConfig(["pwm#{$channel}#weather" => $program]);
     }
 
+    /**
+     * Discover all weather program names configured on the device by
+     * scanning the full backup for weather#setup#<name>#thunder#activated keys.
+     */
+    public function getWeatherProgramNames(): array
+    {
+        $backup = $this->getBackup();
+        $names  = [];
+        foreach (array_keys($backup) as $key) {
+            if (preg_match('/^weather#setup#(.+)#thunder#activated$/', $key, $m)) {
+                $names[] = $m[1];
+            }
+        }
+        sort($names);
+        return array_values(array_unique($names));
+    }
+
     // ─── HTTP transport ───────────────────────────────────────────────────────
 
     /** Sends a MessagePack request and returns the decoded response. */
