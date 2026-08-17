@@ -17,11 +17,17 @@ class Sunriser8 extends IPSModule
         $this->RegisterPropertyInteger('update_interval', 30);
         $this->RegisterPropertyInteger('channels',        4);
 
-        $this->RegisterAttributeString('channel_names',    '{}');
-        $this->RegisterAttributeString('channel_colors',   '{}');
-        $this->RegisterAttributeString('weather_program',  '');
-        $this->RegisterAttributeString('weather_programs', '[]');
-        $this->RegisterAttributeString('day_curves',       '{}');
+        for ($i = 1; $i <= 8; $i++) {
+            $this->RegisterPropertyInteger("ch{$i}_max_pwm", 255);
+        }
+
+        $this->RegisterAttributeString('channel_names',     '{}');
+        $this->RegisterAttributeString('channel_colors',    '{}');
+        $this->RegisterAttributeString('channel_pwm_raw',   '{}');
+        $this->RegisterAttributeString('weather_program',   '');
+        $this->RegisterAttributeString('weather_programs',  '[]');
+        $this->RegisterAttributeString('day_curves',        '{}');
+        $this->RegisterAttributeString('connectivity_state', '');
 
         $this->RegisterTimer('UpdateTimer', 0, 'SR8_UpdateAll($_IPS[\'TARGET\']);');
 
@@ -30,6 +36,7 @@ class Sunriser8 extends IPSModule
 
         // Actionable IPS variables (shown as toggle tiles in TileViz alongside the main tile)
         $this->RegisterVariableFloat('Temperature', 'Wassertemperatur', '~Temperature');
+        $this->RegisterVariableBoolean('Connectivity', 'Verbindung', '~Switch');
 
         $this->RegisterVariableBoolean('Maintenance', 'Wartungsmodus', '~Switch');
         $this->EnableAction('Maintenance');
@@ -96,6 +103,13 @@ class Sunriser8 extends IPSModule
 
     public function RequestAction($ident, $value): void
     {
+        if (!(bool) $this->GetValue('Connectivity')) {
+            // Device known offline — skip the doomed HTTP call rather than
+            // waiting out another timeout; the tile already shows this via
+            // the red connectivity badge.
+            return;
+        }
+
         try {
             $api = $this->createApi();
 
@@ -125,11 +139,17 @@ class Sunriser8 extends IPSModule
                 $ch  = (int) $m[1];
                 $pwm = max(0, min(255, (int) $value));
                 $api->setPwms([(string) $ch => $pwm]);
-                $pct = (int) round($pwm / 255 * 100);
+
+                $pct = $this->pwmToPercent($ch, $pwm);
                 $this->SetValue("CH{$ch}_Brightness", $pct);
                 $this->pushValue("CH{$ch}_Brightness", $pct);
+
+                $rawMap      = json_decode($this->ReadAttributeString('channel_pwm_raw'), true) ?: [];
+                $rawMap[$ch] = $pwm;
+                $this->WriteAttributeString('channel_pwm_raw', json_encode($rawMap));
             }
         } catch (Throwable $e) {
+            $this->setConnectivity(false, $e->getMessage());
             $this->LogMessage('SR8 RequestAction ' . $ident . ': ' . $e->getMessage(), KL_ERROR);
         }
     }
@@ -157,14 +177,45 @@ class Sunriser8 extends IPSModule
                 }
             }
 
+            $this->setConnectivity(true);
             $this->SetStatus(102);
         } catch (Throwable $e) {
-            $this->LogMessage('SR8 UpdateAll: ' . $e->getMessage(), KL_ERROR);
+            $this->setConnectivity(false, $e->getMessage());
             $this->SetStatus(200);
         }
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Update the Connectivity flag and log only on state transitions — the
+     * SunRiser's network interface drops out for minutes at a time, and
+     * logging every failed 30s poll during an outage floods the log.
+     */
+    private function setConnectivity(bool $online, string $detail = ''): void
+    {
+        $prevState = $this->ReadAttributeString('connectivity_state');
+        $newState  = $online ? '1' : '0';
+
+        if ($prevState !== $newState) {
+            $msg = $online
+                ? 'SR8: Verbindung zum Gerät hergestellt'
+                : 'SR8: Gerät nicht erreichbar' . ($detail !== '' ? " ({$detail})" : '')
+                    . ' – weitere Meldungen werden unterdrückt bis zur Wiederverbindung';
+            $this->LogMessage($msg, $online ? KL_MESSAGE : KL_ERROR);
+            $this->WriteAttributeString('connectivity_state', $newState);
+        }
+
+        $this->SetValue('Connectivity', $online);
+        $this->pushValue('Connectivity', $online);
+    }
+
+    private function pwmToPercent(int $channel, int $rawPwm): int
+    {
+        $maxPwm = max(1, min(255, $this->ReadPropertyInteger("ch{$channel}_max_pwm")));
+        $pct    = (int) round(max(0, min(255, $rawPwm)) / $maxPwm * 100);
+        return max(0, min(100, $pct));
+    }
 
     /**
      * Push a live value update to an already-open visualization tile.
@@ -188,13 +239,16 @@ class Sunriser8 extends IPSModule
     {
         $pwms     = $state['pwms'] ?? [];
         $channels = $this->ReadPropertyInteger('channels');
+        $rawMap   = [];
 
         for ($i = 1; $i <= $channels; $i++) {
-            $raw = (int) ($pwms[(string) $i] ?? $pwms[$i] ?? 0);
-            $pct = (int) round($raw / 255 * 100);
+            $raw        = (int) ($pwms[(string) $i] ?? $pwms[$i] ?? 0);
+            $rawMap[$i] = $raw;
+            $pct        = $this->pwmToPercent($i, $raw);
             $this->SetValue("CH{$i}_Brightness", $pct);
             $this->pushValue("CH{$i}_Brightness", $pct);
         }
+        $this->WriteAttributeString('channel_pwm_raw', json_encode($rawMap));
 
         if (isset($state['maintenance'])) {
             $active = (bool) $state['maintenance'];
@@ -250,8 +304,10 @@ class Sunriser8 extends IPSModule
         $colors   = json_decode($this->ReadAttributeString('channel_colors'),  true) ?: [];
         $curves   = json_decode($this->ReadAttributeString('day_curves'),      true) ?: [];
         $programs = json_decode($this->ReadAttributeString('weather_programs'), true) ?: [];
+        $rawPwms  = json_decode($this->ReadAttributeString('channel_pwm_raw'), true) ?: [];
 
         $temp        = (float) $this->GetValue('Temperature');
+        $online      = (bool)  $this->GetValue('Connectivity');
         $maintenance = (bool)  $this->GetValue('Maintenance');
         $thunder     = (bool)  $this->GetValue('Thunder');
         $moon        = (bool)  $this->GetValue('Moon');
@@ -260,12 +316,13 @@ class Sunriser8 extends IPSModule
 
         // Initial state as JSON for JS
         $initJson = json_encode([
-            'temp'        => $temp,
-            'maintenance' => $maintenance,
-            'Thunder'     => $thunder,
-            'Moon'        => $moon,
-            'Clouds'      => $clouds,
-            'Rain'        => $rain,
+            'temp'         => $temp,
+            'connectivity' => $online,
+            'maintenance'  => $maintenance,
+            'Thunder'      => $thunder,
+            'Moon'         => $moon,
+            'Clouds'       => $clouds,
+            'Rain'         => $rain,
         ]);
 
         // Channel bars HTML
@@ -310,13 +367,16 @@ class Sunriser8 extends IPSModule
         $maintCls  = $maintenance ? 'badge badge-warn' : 'badge badge-off';
         $maintData = $maintenance ? '1' : '0';
         $tempStr   = $temp > 0 ? number_format($temp, 1) . ' °C' : '– °C';
+        $connCls   = $online ? 'badge badge-green' : 'badge badge-red';
+        $connText  = $online ? '● Online' : '● Offline';
 
         // Per-channel settings: weather profile assignment + temporary PWM test override
         $settingsHtml = '';
         for ($i = 1; $i <= $channels; $i++) {
             $name           = htmlspecialchars($names[$i] ?? "K{$i}", ENT_QUOTES);
             $currentProgram = (string) $this->GetValue("CH{$i}_Program");
-            $currentPwm     = (int) round(((int) $this->GetValue("CH{$i}_Brightness")) / 100 * 255);
+            $currentPwm     = (int) ($rawPwms[$i] ?? 0);
+            $maxPwm         = max(1, min(255, $this->ReadPropertyInteger("ch{$i}_max_pwm")));
 
             $optionsHtml = "<option value=''" . ($currentProgram === '' ? ' selected' : '') . ">–</option>";
             foreach ($programs as $p) {
@@ -328,7 +388,7 @@ class Sunriser8 extends IPSModule
             $settingsHtml .= "<div class='setting-row'>"
                 . "<span class='setting-name'>{$name}</span>"
                 . "<select id='prog{$i}' onchange=\"requestAction('CH{$i}_Program', this.value)\">{$optionsHtml}</select>"
-                . "<input id='pwm{$i}' type='number' min='0' max='255' value='{$currentPwm}'>"
+                . "<input id='pwm{$i}' type='number' min='0' max='255' value='{$currentPwm}' title='PWM 0-255, Skala fuer Anzeige: max {$maxPwm}'>"
                 . "<button onclick=\"requestAction('CH{$i}_TestPwm', parseInt(document.getElementById('pwm{$i}').value)||0)\">Test</button>"
                 . "</div>";
         }
@@ -357,6 +417,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-siz
 .badge-on{background:#1e4a6e;border-color:#3a8abf;color:#7ec8f0}
 .badge-off{background:#1a2535;border-color:#2a3a50;color:#4a6a8a}
 .badge-warn{background:#4a2010;border-color:#8a4020;color:#f08060}
+.badge-green{background:#124a1e;border-color:#2f8a44;color:#7ee89a;cursor:default}
+.badge-red{background:#4a1010;border-color:#8a2020;color:#f06060;cursor:default}
 .settings-panel{display:flex;flex-direction:column;gap:4px;border-top:1px solid #1e3a5f;padding-top:6px;overflow-y:auto}
 .setting-row{display:flex;align-items:center;gap:6px}
 .setting-name{flex:1;font-size:11px;color:#8aa8c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -368,7 +430,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-siz
 <body>
 <div class="header">
   <span>🐠 Aquarium</span>
-  <span id="temp_display" class="temp">🌡 {$tempStr}</span>
+  <span style="display:flex;align-items:center;gap:6px">
+    <span id="conn_badge" class="{$connCls}">{$connText}</span>
+    <span id="temp_display" class="temp">🌡 {$tempStr}</span>
+  </span>
 </div>
 <div class="channels">{$barsHtml}</div>
 <div class="curve-wrap">
@@ -392,6 +457,13 @@ window.handleMessage = function(raw) {
   var key = data.key, val = data.value;
   if (key === 'Temperature') {
     document.getElementById('temp_display').textContent = '🌡 ' + (val > 0 ? val.toFixed(1) + ' °C' : '– °C');
+  } else if (key === 'Connectivity') {
+    var connEl = document.getElementById('conn_badge');
+    if (connEl) {
+      connEl.className = 'badge ' + (val ? 'badge-green' : 'badge-red');
+      connEl.textContent = val ? '● Online' : '● Offline';
+    }
+    state.connectivity = val;
   } else if (key === 'Maintenance') {
     updateBadge('Maintenance', val, val ? '🔧 Wartung aktiv' : '🔧 Wartung', 'badge-warn', 'badge-off');
     state.maintenance = val;

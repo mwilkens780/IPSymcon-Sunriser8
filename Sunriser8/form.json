@@ -26,6 +26,25 @@
       "caption": "Aktualisierungsintervall (Sekunden)",
       "minimum": 5,
       "suffix": "s"
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Erweitert: Kanal-Skalierung (optional)",
+      "expanded": false,
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Fuer Kanaele mit geringem Ausgangsbereich (z.B. Mondlicht) kann hier der PWM-Wert festgelegt werden, der in der Kachel als 100% angezeigt wird. Standard 255 = keine Skalierung."
+        },
+        { "type": "NumberSpinner", "name": "ch1_max_pwm", "caption": "Kanal 1 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch2_max_pwm", "caption": "Kanal 2 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch3_max_pwm", "caption": "Kanal 3 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch4_max_pwm", "caption": "Kanal 4 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch5_max_pwm", "caption": "Kanal 5 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch6_max_pwm", "caption": "Kanal 6 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch7_max_pwm", "caption": "Kanal 7 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
+        { "type": "NumberSpinner", "name": "ch8_max_pwm", "caption": "Kanal 8 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 }
+      ]
     }
   ],
   "actions": [
