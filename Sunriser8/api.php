@@ -143,10 +143,11 @@ class Sunriser8API
     /**
      * Discover all weather program names configured on the device by
      * scanning the full backup for weather#setup#<name>#thunder#activated keys.
+     * Pass an already-fetched backup to avoid a second /backup round-trip.
      */
-    public function getWeatherProgramNames(): array
+    public function getWeatherProgramNames(?array $backup = null): array
     {
-        $backup = $this->getBackup();
+        $backup = $backup ?? $this->getBackup();
         $names  = [];
         foreach (array_keys($backup) as $key) {
             if (preg_match('/^weather#setup#(.+)#thunder#activated$/', $key, $m)) {

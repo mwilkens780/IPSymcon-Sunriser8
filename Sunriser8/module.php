@@ -87,8 +87,23 @@ class Sunriser8 extends IPSModule
     public function RefreshWeatherPrograms(): void
     {
         try {
-            $api = $this->createApi();
-            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames()));
+            $api    = $this->createApi();
+            $backup = $api->getBackup();
+
+            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames($backup)));
+
+            // Diagnostic: pwm#{i}#max never returned a usable value (channel_pwm_max
+            // stayed at the 255 fallback while raw PWM was observed up to 1000) —
+            // log whatever PWM-related keys actually exist so this can be verified.
+            $pwmDiag = [];
+            foreach ($backup as $k => $v) {
+                if (preg_match('/^pwm#\d+#/', $k)) {
+                    $pwmDiag[$k] = $v;
+                }
+            }
+            if (!empty($pwmDiag)) {
+                $this->LogMessage('SR8 Diagnose PWM-Keys: ' . json_encode($pwmDiag), KL_MESSAGE);
+            }
         } catch (Throwable $e) {
             $this->LogMessage('SR8 RefreshWeatherPrograms: ' . $e->getMessage(), KL_ERROR);
         }
@@ -217,7 +232,7 @@ class Sunriser8 extends IPSModule
     {
         $deviceMaxMap = json_decode($this->ReadAttributeString('channel_pwm_max'), true) ?: [];
         $deviceMax    = (int) ($deviceMaxMap[$channel] ?? 0);
-        return $deviceMax > 0 ? $deviceMax : 255;
+        return $deviceMax > 0 ? $deviceMax : 1000;
     }
 
     /**
@@ -298,10 +313,14 @@ class Sunriser8 extends IPSModule
             $names[$i]  = (string) ($config["pwm#{$i}#name"]  ?? "Kanal {$i}");
             $colors[$i] = (string) ($config["pwm#{$i}#color"] ?? '#ffffff');
 
-            // Channels can have different native PWM ceilings (e.g. 255 vs 1023) —
-            // the device reports its own per-channel max, don't assume 255.
-            $deviceMax  = (int) ($config["pwm#{$i}#max"] ?? 0);
-            $maxPwms[$i] = $deviceMax > 0 ? $deviceMax : 255;
+            // pwm#{i}#max was expected to report each channel's native PWM ceiling,
+            // but never returns a usable value on this device (see diagnostic log
+            // in RefreshWeatherPrograms) — observed raw values reach up to 1000
+            // (two channels seen pegged exactly at 1000), so that's the fallback
+            // instead of the originally-assumed 255. Override per channel via
+            // ch{i}_max_pwm in the instance settings if this default is wrong.
+            $deviceMax   = (int) ($config["pwm#{$i}#max"] ?? 0);
+            $maxPwms[$i] = $deviceMax > 0 ? $deviceMax : 1000;
 
             $prog = (string) ($config["pwm#{$i}#weather"] ?? '');
             $this->SetValue("CH{$i}_Program", $prog);
@@ -558,6 +577,88 @@ HTML;
         $color = trim($color);
         if (preg_match('/^#[0-9a-fA-F]{3,8}$/', $color)) return $color;
         if (preg_match('/^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/', $color)) return $color;
+
+        // Device reports LED colors as color temperature ("5500k") or
+        // wavelength ("465nm") rather than CSS colors — convert those.
+        if (preg_match('/^(\d+)\s*k$/i', $color, $m)) {
+            return $this->kelvinToHex((int) $m[1]);
+        }
+        if (preg_match('/^(\d+)\s*nm$/i', $color, $m)) {
+            return $this->wavelengthToHex((int) $m[1]);
+        }
+
         return '#ffffff';
+    }
+
+    /** Tanner Helland's color-temperature-to-RGB approximation. */
+    private function kelvinToHex(int $kelvin): string
+    {
+        $temp = max(1000, min(40000, $kelvin)) / 100;
+
+        $red = $temp <= 66
+            ? 255
+            : 329.698727446 * (($temp - 60) ** -0.1332047592);
+
+        $green = $temp <= 66
+            ? 99.4708025861 * log($temp) - 161.1195681661
+            : 288.1221695283 * (($temp - 60) ** -0.0755148492);
+
+        if ($temp >= 66) {
+            $blue = 255;
+        } elseif ($temp <= 19) {
+            $blue = 0;
+        } else {
+            $blue = 138.5177312231 * log($temp - 10) - 305.0447927307;
+        }
+
+        return sprintf(
+            '#%02x%02x%02x',
+            (int) max(0, min(255, round($red))),
+            (int) max(0, min(255, round($green))),
+            (int) max(0, min(255, round($blue)))
+        );
+    }
+
+    /** Dan Bruton's visible-wavelength-to-RGB approximation (~380-780nm). */
+    private function wavelengthToHex(int $nm): string
+    {
+        $wl = max(380, min(780, $nm));
+        $r  = 0.0;
+        $g  = 0.0;
+        $b  = 0.0;
+
+        if ($wl < 440) {
+            $r = -($wl - 440) / (440 - 380);
+            $b = 1.0;
+        } elseif ($wl < 490) {
+            $g = ($wl - 440) / (490 - 440);
+            $b = 1.0;
+        } elseif ($wl < 510) {
+            $g = 1.0;
+            $b = -($wl - 510) / (510 - 490);
+        } elseif ($wl < 580) {
+            $r = ($wl - 510) / (580 - 510);
+            $g = 1.0;
+        } elseif ($wl < 645) {
+            $r = 1.0;
+            $g = -($wl - 645) / (645 - 580);
+        } else {
+            $r = 1.0;
+        }
+
+        if ($wl < 420) {
+            $factor = 0.3 + 0.7 * ($wl - 380) / (420 - 380);
+        } elseif ($wl < 701) {
+            $factor = 1.0;
+        } else {
+            $factor = 0.3 + 0.7 * (780 - $wl) / (780 - 701);
+        }
+
+        $gamma = 0.8;
+        $r = $r > 0 ? 255 * (($r * $factor) ** $gamma) : 0;
+        $g = $g > 0 ? 255 * (($g * $factor) ** $gamma) : 0;
+        $b = $b > 0 ? 255 * (($b * $factor) ** $gamma) : 0;
+
+        return sprintf('#%02x%02x%02x', (int) round($r), (int) round($g), (int) round($b));
     }
 }
