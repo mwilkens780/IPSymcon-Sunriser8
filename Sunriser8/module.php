@@ -429,20 +429,21 @@ class Sunriser8 extends IPSModule
 <head>
 <meta charset="utf-8">
 <style>
+html,body{height:100%;overflow:hidden}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;height:100vh;display:flex;flex-direction:column;padding:10px;gap:8px}
-.header{display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:600;border-bottom:1px solid #1e3a5f;padding-bottom:6px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;display:flex;flex-direction:column;padding:10px;gap:8px}
+.header{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:13px;font-weight:600;border-bottom:1px solid #1e3a5f;padding-bottom:6px;flex:none}
 .temp{font-size:13px;color:#7ec8e3}
-.channels{display:flex;gap:10px;height:90px;align-items:flex-end}
+.channels{display:flex;gap:10px;height:90px;align-items:flex-end;flex:none}
 .ch{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
 .bar-wrap{width:100%;height:70px;background:#1e2d40;border-radius:4px;display:flex;align-items:flex-end;overflow:hidden}
 .bar-fill{width:100%;border-radius:4px;min-height:2px;transition:height .4s}
 .ch-pct{font-size:11px;font-weight:700}
 .ch-name{font-size:10px;color:#8aa8c8;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%}
-.curve-wrap{flex:1;min-height:0}
-.curve-wrap svg{width:100%;height:100%}
-.curve-labels{display:flex;justify-content:space-between;font-size:10px;color:#4a6a8a;margin-top:2px}
-.weather-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.curve-wrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.curve-wrap svg{flex:1;min-height:0;width:100%;display:block}
+.curve-labels{flex:none;display:flex;justify-content:space-between;font-size:10px;color:#4a6a8a;margin-top:2px}
+.weather-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:none}
 .badge{padding:3px 8px;border-radius:12px;font-size:12px;border:1px solid transparent;cursor:pointer;user-select:none;transition:all .2s}
 .badge-on{background:#1e4a6e;border-color:#3a8abf;color:#7ec8f0}
 .badge-off{background:#1a2535;border-color:#2a3a50;color:#4a6a8a}
@@ -459,11 +460,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-siz
 </head>
 <body>
 <div class="header">
-  <span>🐠 Aquarium</span>
-  <span style="display:flex;align-items:center;gap:6px">
-    <span id="conn_badge" class="{$connCls}">{$connText}</span>
-    <span id="temp_display" class="temp">🌡 {$tempStr}</span>
-  </span>
+  <span id="conn_badge" class="{$connCls}">{$connText}</span>
+  <span id="temp_display" class="temp">🌡 {$tempStr}</span>
 </div>
 <div class="channels">{$barsHtml}</div>
 <div class="curve-wrap">
