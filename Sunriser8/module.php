@@ -92,18 +92,20 @@ class Sunriser8 extends IPSModule
 
             $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames($backup)));
 
-            // Diagnostic: pwm#{i}#max never returned a usable value (channel_pwm_max
-            // stayed at the 255 fallback while raw PWM was observed up to 1000) —
-            // log whatever PWM-related keys actually exist so this can be verified.
-            $pwmDiag = [];
-            foreach ($backup as $k => $v) {
+            // Diagnostic: pwm#{i}#max never resolved to anything but the fallback.
+            // /backup turned out not to carry any pwm# keys at all (checked in the
+            // previous deploy) — so log the result of the actual targeted config
+            // read (getModuleConfig(), the same call applyConfig() uses) instead,
+            // to see what pwm#{i}#max really comes back as on that path.
+            $channels = $this->ReadPropertyInteger('channels');
+            $config   = $api->getModuleConfig($channels);
+            $pwmDiag  = [];
+            foreach ($config as $k => $v) {
                 if (preg_match('/^pwm#\d+#/', $k)) {
                     $pwmDiag[$k] = $v;
                 }
             }
-            if (!empty($pwmDiag)) {
-                $this->LogMessage('SR8 Diagnose PWM-Keys: ' . json_encode($pwmDiag), KL_MESSAGE);
-            }
+            $this->LogMessage('SR8 Diagnose PWM-Keys (getModuleConfig): ' . json_encode($pwmDiag), KL_MESSAGE);
         } catch (Throwable $e) {
             $this->LogMessage('SR8 RefreshWeatherPrograms: ' . $e->getMessage(), KL_ERROR);
         }
