@@ -448,9 +448,9 @@ class Sunriser8 extends IPSModule
 <head>
 <meta charset="utf-8">
 <style>
-html,body{height:100%;overflow:hidden}
+html{height:100%}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;display:flex;flex-direction:column;padding:10px;gap:8px}
+body{min-height:100%;overflow-y:auto;overflow-x:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;display:flex;flex-direction:column;padding:10px;gap:8px}
 .header{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:13px;font-weight:600;border-bottom:1px solid #1e3a5f;padding-bottom:6px;flex:none}
 .temp{font-size:13px;color:#7ec8e3}
 .channels{display:flex;gap:10px;height:90px;align-items:flex-end;flex:none}
