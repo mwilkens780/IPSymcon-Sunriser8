@@ -86,17 +86,15 @@ class Sunriser8 extends IPSModule
      */
     public function RefreshWeatherPrograms(): void
     {
+        $api = $this->createApi();
+
+        // Diagnostic: log what pwm#{i}#max actually comes back as via the same
+        // targeted config read (getModuleConfig()) that applyConfig() uses.
+        // Run and logged FIRST and independently of the /backup call below —
+        // GET /backup has repeatedly failed with an identical "373 bytes
+        // missing" truncation on this device, and that shouldn't prevent this
+        // diagnostic (or count as a connectivity outage).
         try {
-            $api    = $this->createApi();
-            $backup = $api->getBackup();
-
-            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames($backup)));
-
-            // Diagnostic: pwm#{i}#max never resolved to anything but the fallback.
-            // /backup turned out not to carry any pwm# keys at all (checked in the
-            // previous deploy) — so log the result of the actual targeted config
-            // read (getModuleConfig(), the same call applyConfig() uses) instead,
-            // to see what pwm#{i}#max really comes back as on that path.
             $channels = $this->ReadPropertyInteger('channels');
             $config   = $api->getModuleConfig($channels);
             $pwmDiag  = [];
@@ -107,7 +105,17 @@ class Sunriser8 extends IPSModule
             }
             $this->LogMessage('SR8 Diagnose PWM-Keys (getModuleConfig): ' . json_encode($pwmDiag), KL_MESSAGE);
         } catch (Throwable $e) {
-            $this->LogMessage('SR8 RefreshWeatherPrograms: ' . $e->getMessage(), KL_ERROR);
+            $this->LogMessage('SR8 RefreshWeatherPrograms (Diagnose): ' . $e->getMessage(), KL_ERROR);
+        }
+
+        // GET /backup is a much larger payload and appears to fail consistently
+        // (not just transiently) on this device — isolate it so it can't stop
+        // the diagnostic above from running.
+        try {
+            $backup = $api->getBackup();
+            $this->WriteAttributeString('weather_programs', json_encode($api->getWeatherProgramNames($backup)));
+        } catch (Throwable $e) {
+            $this->LogMessage('SR8 RefreshWeatherPrograms (Backup): ' . $e->getMessage(), KL_ERROR);
         }
     }
 
