@@ -34,16 +34,16 @@
       "items": [
         {
           "type": "Label",
-          "caption": "Fuer Kanaele mit geringem Ausgangsbereich (z.B. Mondlicht) kann hier der PWM-Wert festgelegt werden, der in der Kachel als 100% angezeigt wird. Standard 255 = keine Skalierung."
+          "caption": "Das Anzeige-Maximum (100% in der Kachel) wird normalerweise automatisch vom Geraet uebernommen (pwm#max je Kanal, kann je Kanal unterschiedlich sein). Fuer Kanaele mit geringem NUTZbereich (z.B. Mondlicht, das nur einen Bruchteil seines eigenen Maximums nutzt) kann hier optional ein eigener, kleinerer Wert erzwungen werden. 0 = automatisch (empfohlen)."
         },
-        { "type": "NumberSpinner", "name": "ch1_max_pwm", "caption": "Kanal 1 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch2_max_pwm", "caption": "Kanal 2 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch3_max_pwm", "caption": "Kanal 3 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch4_max_pwm", "caption": "Kanal 4 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch5_max_pwm", "caption": "Kanal 5 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch6_max_pwm", "caption": "Kanal 6 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch7_max_pwm", "caption": "Kanal 7 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 },
-        { "type": "NumberSpinner", "name": "ch8_max_pwm", "caption": "Kanal 8 – Anzeige-Maximum (PWM)", "minimum": 1, "maximum": 255 }
+        { "type": "NumberSpinner", "name": "ch1_max_pwm", "caption": "Kanal 1 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch2_max_pwm", "caption": "Kanal 2 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch3_max_pwm", "caption": "Kanal 3 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch4_max_pwm", "caption": "Kanal 4 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch5_max_pwm", "caption": "Kanal 5 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch6_max_pwm", "caption": "Kanal 6 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch7_max_pwm", "caption": "Kanal 7 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 },
+        { "type": "NumberSpinner", "name": "ch8_max_pwm", "caption": "Kanal 8 – Anzeige-Maximum (0 = automatisch)", "minimum": 0, "maximum": 4095 }
       ]
     }
   ],

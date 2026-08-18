@@ -18,12 +18,14 @@ class Sunriser8 extends IPSModule
         $this->RegisterPropertyInteger('channels',        4);
 
         for ($i = 1; $i <= 8; $i++) {
-            $this->RegisterPropertyInteger("ch{$i}_max_pwm", 255);
+            // 0 = automatisch: das vom Gerät gemeldete pwm#{i}#max verwenden.
+            $this->RegisterPropertyInteger("ch{$i}_max_pwm", 0);
         }
 
         $this->RegisterAttributeString('channel_names',     '{}');
         $this->RegisterAttributeString('channel_colors',    '{}');
         $this->RegisterAttributeString('channel_pwm_raw',   '{}');
+        $this->RegisterAttributeString('channel_pwm_max',   '{}');
         $this->RegisterAttributeString('weather_program',   '');
         $this->RegisterAttributeString('weather_programs',  '[]');
         $this->RegisterAttributeString('day_curves',        '{}');
@@ -137,7 +139,7 @@ class Sunriser8 extends IPSModule
 
             } elseif (preg_match('/^CH(\d+)_TestPwm$/', $ident, $m)) {
                 $ch  = (int) $m[1];
-                $pwm = max(0, min(255, (int) $value));
+                $pwm = max(0, min($this->deviceMaxPwm($ch), (int) $value));
                 $api->setPwms([(string) $ch => $pwm]);
 
                 $pct = $this->pwmToPercent($ch, $pwm);
@@ -210,10 +212,30 @@ class Sunriser8 extends IPSModule
         $this->pushValue('Connectivity', $online);
     }
 
+    /** The device's own reported PWM ceiling for a channel (not the display override). */
+    private function deviceMaxPwm(int $channel): int
+    {
+        $deviceMaxMap = json_decode($this->ReadAttributeString('channel_pwm_max'), true) ?: [];
+        $deviceMax    = (int) ($deviceMaxMap[$channel] ?? 0);
+        return $deviceMax > 0 ? $deviceMax : 255;
+    }
+
+    /**
+     * The value that should count as 100% for a channel: the user-configured
+     * display override if set (>0), otherwise the device's own reported
+     * pwm#{i}#max (channels can have different native PWM ceilings), with a
+     * last-resort fallback of 255 if the device never reported one.
+     */
+    private function effectiveMaxPwm(int $channel): int
+    {
+        $override = $this->ReadPropertyInteger("ch{$channel}_max_pwm");
+        return $override > 0 ? $override : $this->deviceMaxPwm($channel);
+    }
+
     private function pwmToPercent(int $channel, int $rawPwm): int
     {
-        $maxPwm = max(1, min(255, $this->ReadPropertyInteger("ch{$channel}_max_pwm")));
-        $pct    = (int) round(max(0, min(255, $rawPwm)) / $maxPwm * 100);
+        $maxPwm = $this->effectiveMaxPwm($channel);
+        $pct    = (int) round(max(0, $rawPwm) / $maxPwm * 100);
         return max(0, min(100, $pct));
     }
 
@@ -268,12 +290,18 @@ class Sunriser8 extends IPSModule
 
     private function applyConfig(array $config, int $channels): void
     {
-        $names  = [];
-        $colors = [];
+        $names   = [];
+        $colors  = [];
+        $maxPwms = [];
 
         for ($i = 1; $i <= $channels; $i++) {
             $names[$i]  = (string) ($config["pwm#{$i}#name"]  ?? "Kanal {$i}");
             $colors[$i] = (string) ($config["pwm#{$i}#color"] ?? '#ffffff');
+
+            // Channels can have different native PWM ceilings (e.g. 255 vs 1023) —
+            // the device reports its own per-channel max, don't assume 255.
+            $deviceMax  = (int) ($config["pwm#{$i}#max"] ?? 0);
+            $maxPwms[$i] = $deviceMax > 0 ? $deviceMax : 255;
 
             $prog = (string) ($config["pwm#{$i}#weather"] ?? '');
             $this->SetValue("CH{$i}_Program", $prog);
@@ -284,8 +312,9 @@ class Sunriser8 extends IPSModule
             }
         }
 
-        $this->WriteAttributeString('channel_names',  json_encode($names));
-        $this->WriteAttributeString('channel_colors', json_encode($colors));
+        $this->WriteAttributeString('channel_names',   json_encode($names));
+        $this->WriteAttributeString('channel_colors',  json_encode($colors));
+        $this->WriteAttributeString('channel_pwm_max', json_encode($maxPwms));
 
         $curves = [];
         for ($i = 1; $i <= $channels; $i++) {
@@ -376,7 +405,8 @@ class Sunriser8 extends IPSModule
             $name           = htmlspecialchars($names[$i] ?? "K{$i}", ENT_QUOTES);
             $currentProgram = (string) $this->GetValue("CH{$i}_Program");
             $currentPwm     = (int) ($rawPwms[$i] ?? 0);
-            $maxPwm         = max(1, min(255, $this->ReadPropertyInteger("ch{$i}_max_pwm")));
+            $deviceMax      = $this->deviceMaxPwm($i);
+            $effectiveMax   = $this->effectiveMaxPwm($i);
 
             $optionsHtml = "<option value=''" . ($currentProgram === '' ? ' selected' : '') . ">–</option>";
             foreach ($programs as $p) {
@@ -388,7 +418,7 @@ class Sunriser8 extends IPSModule
             $settingsHtml .= "<div class='setting-row'>"
                 . "<span class='setting-name'>{$name}</span>"
                 . "<select id='prog{$i}' onchange=\"requestAction('CH{$i}_Program', this.value)\">{$optionsHtml}</select>"
-                . "<input id='pwm{$i}' type='number' min='0' max='255' value='{$currentPwm}' title='PWM 0-255, Skala fuer Anzeige: max {$maxPwm}'>"
+                . "<input id='pwm{$i}' type='number' min='0' max='{$deviceMax}' value='{$currentPwm}' title='PWM 0-{$deviceMax} (Geraete-Maximum). Anzeige-100% aktuell bei {$effectiveMax}.'>"
                 . "<button onclick=\"requestAction('CH{$i}_TestPwm', parseInt(document.getElementById('pwm{$i}').value)||0)\">Test</button>"
                 . "</div>";
         }
