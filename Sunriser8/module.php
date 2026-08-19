@@ -585,13 +585,38 @@ HTML;
 
     private function markersToSvgPoints(array $markers): string
     {
-        if (count($markers) < 2) return '';
         $points = [];
         for ($i = 0; $i + 1 < count($markers); $i += 2) {
-            $points[] = max(0, min(1440, (int) $markers[$i])) . ',' . max(0, min(100, 100 - (int) $markers[$i + 1]));
+            $points[] = [
+                max(0, min(1440, (int) $markers[$i])),
+                max(0, min(100, (int) $markers[$i + 1])),
+            ];
         }
-        usort($points, static fn($a, $b) => (int) explode(',', $a)[0] - (int) explode(',', $b)[0]);
-        return implode(' ', $points);
+        if (count($points) < 2) return '';
+
+        usort($points, static fn($a, $b) => $a[0] <=> $b[0]);
+
+        $first = $points[0];
+        $last  = $points[count($points) - 1];
+
+        // The day curve repeats every 24h — most channels don't have markers
+        // covering the full night, which otherwise leaves the line floating
+        // mid-canvas with a gap at both edges. Extend it to x=0 and x=1440 by
+        // interpolating across the midnight wrap (last marker of "today" to
+        // first marker of "tomorrow"), consistent with how the segments
+        // between markers are already just straight-line interpolations.
+        $span    = ($first[0] + 1440) - $last[0];
+        $t       = $span > 0 ? (1440 - $last[0]) / $span : 0;
+        $wrapPct = $last[1] + $t * ($first[1] - $last[1]);
+        $wrapY   = (int) round(100 - max(0, min(100, $wrapPct)));
+
+        $svgPoints = ["0,{$wrapY}"];
+        foreach ($points as $p) {
+            $svgPoints[] = "{$p[0]}," . (100 - $p[1]);
+        }
+        $svgPoints[] = "1440,{$wrapY}";
+
+        return implode(' ', $svgPoints);
     }
 
     private function sanitizeColor(string $color): string
