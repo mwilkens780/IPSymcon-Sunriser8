@@ -460,7 +460,7 @@ class Sunriser8 extends IPSModule
 <style>
 html{height:100%}
 *{box-sizing:border-box;margin:0;padding:0}
-body{min-height:100%;overflow-y:auto;overflow-x:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;display:flex;flex-direction:column;padding:10px;gap:8px}
+body{overflow-y:auto;overflow-x:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;display:flex;flex-direction:column;padding:10px;gap:8px}
 .header{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:13px;font-weight:600;border-bottom:1px solid #1e3a5f;padding-bottom:6px;flex:none}
 .temp{font-size:13px;color:#7ec8e3}
 .channels{display:flex;gap:10px;height:90px;align-items:flex-end;flex:none}
@@ -507,6 +507,18 @@ body{min-height:100%;overflow-y:auto;overflow-x:hidden;font-family:-apple-system
 </div>
 <div id="settings_panel" class="settings-panel" style="display:none">{$settingsHtml}</div>
 <script>
+// WebFront injects its own body{margin-top:...;margin-bottom:...} (reserved space
+// for the tile's title/expand-icon overlay, value varies per tile/theme). Our own
+// CSS reset can't win that specificity fight (element selector beats *), and simply
+// zeroing it would let our content render under that overlay. So: measure whatever
+// margin WebFront actually applied and size the body to exactly fill what's left,
+// instead of guessing a fixed pixel value.
+(function() {
+  var cs = getComputedStyle(document.body);
+  var vExtra = (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+  document.body.style.height = 'calc(100% - ' + vExtra + 'px)';
+})();
+
 var state = {$initJson};
 
 window.handleMessage = function(raw) {

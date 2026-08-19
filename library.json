@@ -3,8 +3,8 @@
     "author": "Martin Wilkens",
     "name": "SunRiser 8",
     "description": "IP-Symcon Modul fuer den SunRiser 8 LED-Controller. Kanaldarstellung, Tageskurven, Wetter-Simulation.",
-    "version": "1.16",
-    "build": 16,
-    "date": 1787081436,
+    "version": "1.17",
+    "build": 17,
+    "date": 1787144103,
     "url": "https://github.com/mwilkens780/IPSymcon-Sunriser8"
 }
