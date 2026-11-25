@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/api.php';
+require_once __DIR__ . '/../libs/TileKit.php';
 
 class Sunriser8 extends IPSModule
 {
+    use \Fuchsbau\TileKit\Sunriser8\TileKit;
+
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     public function Create(): void
@@ -130,6 +133,8 @@ class Sunriser8 extends IPSModule
 
     public function RequestAction($ident, $value): void
     {
+        // TileKit-Schalter senden '<ident>_toggle'
+        $ident = (string) preg_replace('/_toggle$/', '', (string) $ident);
         if (!(bool) $this->GetValue('Connectivity')) {
             // Device known offline — skip the doomed HTTP call rather than
             // waiting out another timeout; the tile already shows this via
@@ -270,7 +275,7 @@ class Sunriser8 extends IPSModule
      */
     private function pushValue(string $key, $value): void
     {
-        $this->UpdateVisualizationValue(json_encode(['key' => $key, 'value' => $value]));
+        $this->tkPush($key, $value);
     }
 
     private function createApi(): Sunriser8API
@@ -353,234 +358,113 @@ class Sunriser8 extends IPSModule
         $this->WriteAttributeString('day_curves', json_encode($curves));
     }
 
-    // ─── HTML tile (initial render + dynamic updates via handleMessage) ────────
+    // ─── Kachel (TileKit, siehe docs/ui-kachel.md im Workspace) ──────────────
+    //
+    // Live-Updates kommen weiterhin pro Variable (pushValue → tkPush(key, value)),
+    // das JS registriert dafuer je Schluessel einen Handler.
+
+    private const EFFECTS = [
+        'Thunder' => ['⛈️', 'Gewitter'],
+        'Moon'    => ['🌙', 'Mond'],
+        'Clouds'  => ['☁️', 'Wolken'],
+        'Rain'    => ['🌧️', 'Regen'],
+    ];
 
     private function buildHTML(): string
     {
         $channels = $this->ReadPropertyInteger('channels');
-        $names    = json_decode($this->ReadAttributeString('channel_names'),   true) ?: [];
-        $colors   = json_decode($this->ReadAttributeString('channel_colors'),  true) ?: [];
-        $curves   = json_decode($this->ReadAttributeString('day_curves'),      true) ?: [];
+        $names    = json_decode($this->ReadAttributeString('channel_names'), true) ?: [];
+        $colors   = json_decode($this->ReadAttributeString('channel_colors'), true) ?: [];
+        $curves   = json_decode($this->ReadAttributeString('day_curves'), true) ?: [];
         $programs = json_decode($this->ReadAttributeString('weather_programs'), true) ?: [];
         $rawPwms  = json_decode($this->ReadAttributeString('channel_pwm_raw'), true) ?: [];
+        $temp     = (float) $this->GetValue('Temperature');
+        $online   = (bool) $this->GetValue('Connectivity');
+        $maint    = (bool) $this->GetValue('Maintenance');
 
-        $temp        = (float) $this->GetValue('Temperature');
-        $online      = (bool)  $this->GetValue('Connectivity');
-        $maintenance = (bool)  $this->GetValue('Maintenance');
-        $thunder     = (bool)  $this->GetValue('Thunder');
-        $moon        = (bool)  $this->GetValue('Moon');
-        $clouds      = (bool)  $this->GetValue('Clouds');
-        $rain        = (bool)  $this->GetValue('Rain');
-
-        // Initial state as JSON for JS
-        $initJson = json_encode([
-            'temp'         => $temp,
-            'connectivity' => $online,
-            'maintenance'  => $maintenance,
-            'Thunder'      => $thunder,
-            'Moon'         => $moon,
-            'Clouds'       => $clouds,
-            'Rain'         => $rain,
-        ]);
-
-        // Channel bars HTML
-        $barsHtml = '';
+        // Kanaele als senkrechte Balken in der Kanalfarbe
+        $bars = '';
         for ($i = 1; $i <= $channels; $i++) {
             $pct   = max(0, min(100, (int) $this->GetValue("CH{$i}_Brightness")));
-            $name  = htmlspecialchars($names[$i] ?? "K{$i}", ENT_QUOTES);
             $color = $this->sanitizeColor($colors[$i] ?? '#ffffff');
-
-            $barsHtml .= "<div class='ch'>"
-                . "<div class='bar-wrap'><div id='bar{$i}' class='bar-fill' style='height:{$pct}%;background:{$color};'></div></div>"
-                . "<div id='pct{$i}' class='ch-pct'>{$pct}%</div>"
-                . "<div class='ch-name'>{$name}</div>"
-                . "</div>";
+            $bars .= "<div class=\"ch\"><div class=\"ch-track\"><div id=\"bar{$i}\" class=\"ch-fill\" style=\"height:{$pct}%;background:{$color}\"></div></div>"
+                . "<span id=\"pct{$i}\" class=\"ch-pct\">{$pct} %</span><span class=\"tk-sub ch-name\">" . self::tkEsc((string) ($names[$i] ?? "K{$i}")) . '</span></div>';
         }
 
-        // SVG day curves
-        $svgLines = '';
+        // Tageskurven aller Kanaele
+        $lines = '';
         for ($i = 1; $i <= $channels; $i++) {
             $pts = $this->markersToSvgPoints($curves[$i] ?? []);
             if ($pts !== '') {
-                $c = $this->sanitizeColor($colors[$i] ?? '#ffffff');
-                $svgLines .= "<polyline points='{$pts}' fill='none' stroke='{$c}' stroke-width='2' opacity='0.85'/>";
+                $lines .= "<polyline points=\"{$pts}\" fill=\"none\" stroke=\"" . $this->sanitizeColor($colors[$i] ?? '#ffffff') . '" stroke-width="2" opacity="0.85" vector-effect="non-scaling-stroke"/>';
             }
         }
 
-        // Weather badges with toggle
-        $weatherItems = [
-            ['Thunder', '⛈', 'Gewitter', $thunder],
-            ['Moon',    '🌙', 'Mond',     $moon],
-            ['Clouds',  '☁',  'Wolken',   $clouds],
-            ['Rain',    '🌧', 'Regen',    $rain],
-        ];
-        $badgesHtml = '';
-        foreach ($weatherItems as [$key, $icon, $label, $active]) {
-            $cls     = $active ? 'badge badge-on' : 'badge badge-off';
-            $dataVal = $active ? '1' : '0';
-            $text    = htmlspecialchars($icon . ' ' . $label, ENT_QUOTES);
-            $badgesHtml .= "<span id='badge_{$key}' class='{$cls}' data-active='{$dataVal}' onclick='toggleEffect(\"{$key}\")'>{$text}</span>";
-        }
-
-        $maintCls  = $maintenance ? 'badge badge-warn' : 'badge badge-off';
-        $maintData = $maintenance ? '1' : '0';
-        $tempStr   = $temp > 0 ? number_format($temp, 1) . ' °C' : '– °C';
-        $connCls   = $online ? 'badge badge-green' : 'badge badge-red';
-        $connText  = $online ? '● Online' : '● Offline';
-
-        // Per-channel settings: weather profile assignment + temporary PWM test override
-        $settingsHtml = '';
+        // Einstellungen je Kanal: Wetterprogramm + kurzer PWM-Test
+        $rows = '';
         for ($i = 1; $i <= $channels; $i++) {
-            $name           = htmlspecialchars($names[$i] ?? "K{$i}", ENT_QUOTES);
-            $currentProgram = (string) $this->GetValue("CH{$i}_Program");
-            $currentPwm     = (int) ($rawPwms[$i] ?? 0);
-            $deviceMax      = $this->deviceMaxPwm($i);
-            $effectiveMax   = $this->effectiveMaxPwm($i);
-
-            $optionsHtml = "<option value=''" . ($currentProgram === '' ? ' selected' : '') . ">–</option>";
+            $cur  = (string) $this->GetValue("CH{$i}_Program");
+            $opts = '<option value=""' . ($cur === '' ? ' selected' : '') . '>–</option>';
             foreach ($programs as $p) {
-                $pEsc = htmlspecialchars((string) $p, ENT_QUOTES);
-                $sel  = ($p === $currentProgram) ? ' selected' : '';
-                $optionsHtml .= "<option value='{$pEsc}'{$sel}>{$pEsc}</option>";
+                $pe    = self::tkEsc((string) $p);
+                $opts .= "<option value=\"{$pe}\"" . ($p === $cur ? ' selected' : '') . ">{$pe}</option>";
             }
-
-            $settingsHtml .= "<div class='setting-row'>"
-                . "<span class='setting-name'>{$name}</span>"
-                . "<select id='prog{$i}' onchange=\"requestAction('CH{$i}_Program', this.value)\">{$optionsHtml}</select>"
-                . "<input id='pwm{$i}' type='number' min='0' max='{$deviceMax}' value='{$currentPwm}' title='PWM 0-{$deviceMax} (Geraete-Maximum). Anzeige-100% aktuell bei {$effectiveMax}.'>"
-                . "<button onclick=\"requestAction('CH{$i}_TestPwm', parseInt(document.getElementById('pwm{$i}').value)||0)\">Test</button>"
-                . "</div>";
+            $max   = $this->deviceMaxPwm($i);
+            $rows .= '<div class="set-row"><span class="tk-name">' . self::tkEsc((string) ($names[$i] ?? "K{$i}")) . '</span>'
+                . "<select id=\"prog{$i}\" class=\"tk-select\" onchange=\"requestAction('CH{$i}_Program', this.value)\">{$opts}</select>"
+                . "<input id=\"pwm{$i}\" class=\"pwm\" type=\"number\" min=\"0\" max=\"{$max}\" value=\"" . (int) ($rawPwms[$i] ?? 0) . "\" title=\"PWM 0-{$max}, 100 % = " . $this->effectiveMaxPwm($i) . '">'
+                . "<button class=\"test\" onclick=\"requestAction('CH{$i}_TestPwm', parseInt(tk.el('pwm{$i}').value)||0)\">Test</button></div>";
         }
 
-        return <<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-html{height:100%}
-*{box-sizing:border-box;margin:0;padding:0}
-body{overflow-y:auto;overflow-x:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;background:#0d1b2a;color:#d0e8ff;display:flex;flex-direction:column;padding:10px;gap:8px}
-.header{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:13px;font-weight:600;border-bottom:1px solid #1e3a5f;padding-bottom:6px;flex:none}
-.temp{font-size:13px;color:#7ec8e3}
-.channels{display:flex;gap:10px;height:90px;align-items:flex-end;flex:none}
-.ch{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
-.bar-wrap{width:100%;height:70px;background:#1e2d40;border-radius:4px;display:flex;align-items:flex-end;overflow:hidden}
-.bar-fill{width:100%;border-radius:4px;min-height:2px;transition:height .4s}
-.ch-pct{font-size:11px;font-weight:700}
-.ch-name{font-size:10px;color:#8aa8c8;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%}
-.curve-wrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.curve-wrap svg{flex:1;min-height:0;width:100%;display:block}
-.curve-labels{flex:none;display:flex;justify-content:space-between;font-size:10px;color:#4a6a8a;margin-top:2px}
-.weather-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:none}
-.badge{padding:3px 8px;border-radius:12px;font-size:12px;border:1px solid transparent;cursor:pointer;user-select:none;transition:all .2s}
-.badge-on{background:#1e4a6e;border-color:#3a8abf;color:#7ec8f0}
-.badge-off{background:#1a2535;border-color:#2a3a50;color:#4a6a8a}
-.badge-warn{background:#4a2010;border-color:#8a4020;color:#f08060}
-.badge-green{background:#124a1e;border-color:#2f8a44;color:#7ee89a;cursor:default}
-.badge-red{background:#4a1010;border-color:#8a2020;color:#f06060;cursor:default}
-.settings-panel{display:flex;flex-direction:column;gap:4px;border-top:1px solid #1e3a5f;padding-top:6px;overflow-y:auto}
-.setting-row{display:flex;align-items:center;gap:6px}
-.setting-name{flex:1;font-size:11px;color:#8aa8c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.setting-row select{flex:1;min-width:0;background:#1a2535;color:#d0e8ff;border:1px solid #2a3a50;border-radius:4px;font-size:11px;padding:2px 4px}
-.setting-row input{width:48px;background:#1a2535;color:#d0e8ff;border:1px solid #2a3a50;border-radius:4px;font-size:11px;padding:2px 4px}
-.setting-row button{background:#1e4a6e;color:#7ec8f0;border:1px solid #3a8abf;border-radius:4px;font-size:11px;padding:2px 8px;cursor:pointer}
-</style>
-</head>
-<body>
-<div class="header">
-  <span id="conn_badge" class="{$connCls}">{$connText}</span>
-  <span id="temp_display" class="temp">🌡 {$tempStr}</span>
-</div>
-<div class="channels">{$barsHtml}</div>
-<div class="curve-wrap">
-  <svg viewBox="0 0 1440 100" preserveAspectRatio="none">
-    <rect width="1440" height="100" fill="#0d1420"/>
-    {$svgLines}
-  </svg>
-  <div class="curve-labels"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-</div>
-<div class="weather-row">
-  {$badgesHtml}
-  <span id="badge_Maintenance" class="{$maintCls}" data-active="{$maintData}" onclick="toggleMaintenance()">🔧 Wartung</span>
-  <span class="badge badge-off" onclick="toggleSettings()">⚙ Einstellungen</span>
-</div>
-<div id="settings_panel" class="settings-panel" style="display:none">{$settingsHtml}</div>
-<script>
-// WebFront injects its own body{margin-top:...;margin-bottom:...} (reserved space
-// for the tile's title/expand-icon overlay, value varies per tile/theme). Our own
-// CSS reset can't win that specificity fight (element selector beats *), and simply
-// zeroing it would let our content render under that overlay. So: measure whatever
-// margin WebFront actually applied and size the body to exactly fill what's left,
-// instead of guessing a fixed pixel value.
-(function() {
-  var cs = getComputedStyle(document.body);
-  var vExtra = (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
-  document.body.style.height = 'calc(100% - ' + vExtra + 'px)';
-})();
+        $body = self::tkGroup('Licht')
+            . "<div class=\"tk-tile tk-span2 chans\"><span class=\"tk-name\">Kanäle</span><div class=\"ch-row\">{$bars}</div></div>"
+            . '<div class="tk-tile tk-span2 curve"><span class="tk-name">Tagesverlauf</span><svg viewBox="0 0 1440 100" preserveAspectRatio="none">' . $lines . '</svg>'
+            . '<div class="curve-x"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div></div>'
+            . self::tkStatusTile('conn', 'Verbindung', $online ? 'Online' : 'Offline', $online ? '🟢' : '🔴', $online ? 'ok' : 'alarm')
+            . self::tkValueTile('temp', 'Wassertemperatur', $temp > 0 ? number_format($temp, 1, ',', '') . ' °C' : '–')
+            . self::tkGroup('Effekte');
+        foreach (self::EFFECTS as $key => [$icon, $label]) {
+            $on    = (bool) $this->GetValue($key);
+            $body .= self::tkToggleTile($key, $label, $on, $on ? 'An' : 'Aus', $icon);
+        }
+        $body .= self::tkToggleTile('Maintenance', 'Wartung', $maint, $maint ? 'Aktiv' : 'Aus', '🔧', $maint ? 'tk-is-warn' : '')
+            . "<div class=\"tk-tile tk-full settings\"><details><summary class=\"tk-name\">⚙️ Einstellungen je Kanal</summary>{$rows}</details></div>";
 
-var state = {$initJson};
-
-window.handleMessage = function(raw) {
-  var data = JSON.parse(raw);
-  var key = data.key, val = data.value;
-  if (key === 'Temperature') {
-    document.getElementById('temp_display').textContent = '🌡 ' + (val > 0 ? val.toFixed(1) + ' °C' : '– °C');
-  } else if (key === 'Connectivity') {
-    var connEl = document.getElementById('conn_badge');
-    if (connEl) {
-      connEl.className = 'badge ' + (val ? 'badge-green' : 'badge-red');
-      connEl.textContent = val ? '● Online' : '● Offline';
-    }
-    state.connectivity = val;
-  } else if (key === 'Maintenance') {
-    updateBadge('Maintenance', val, val ? '🔧 Wartung aktiv' : '🔧 Wartung', 'badge-warn', 'badge-off');
-    state.maintenance = val;
-  } else if (['Thunder','Moon','Clouds','Rain'].indexOf(key) >= 0) {
-    updateBadge(key, val, null, 'badge-on', 'badge-off');
-    state[key] = val;
-  } else if (key.indexOf('_Brightness') > 0) {
-    var ch = key.replace('CH','').replace('_Brightness','');
-    var bar = document.getElementById('bar' + ch);
-    var pct = document.getElementById('pct' + ch);
-    if (bar) bar.style.height = val + '%';
-    if (pct) pct.textContent = val + '%';
-  } else if (key.indexOf('_Program') > 0) {
-    var chP = key.replace('CH','').replace('_Program','');
-    var sel = document.getElementById('prog' + chP);
-    if (sel) sel.value = val;
-  }
-};
-
-function toggleSettings() {
-  var p = document.getElementById('settings_panel');
-  if (!p) return;
-  p.style.display = (p.style.display === 'none') ? 'flex' : 'none';
-}
-
-function updateBadge(key, active, label, clsOn, clsOff) {
-  var el = document.getElementById('badge_' + key);
-  if (!el) return;
-  el.className = 'badge ' + (active ? clsOn : clsOff);
-  el.setAttribute('data-active', active ? '1' : '0');
-  if (label) el.textContent = label;
-}
-
-function toggleEffect(key) {
-  var el = document.getElementById('badge_' + key);
-  var current = el ? el.getAttribute('data-active') === '1' : false;
-  requestAction(key, !current);
-}
-
-function toggleMaintenance() {
-  var el = document.getElementById('badge_Maintenance');
-  var current = el ? el.getAttribute('data-active') === '1' : false;
-  requestAction('Maintenance', !current);
-}
-</script>
-</body>
-</html>
-HTML;
+        $css = <<<'CSS'
+.chans,.curve{justify-content:flex-start}
+.ch-row{display:flex;gap:10px;align-items:flex-end;margin-top:4px}
+.ch{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+.ch-track{width:100%;height:64px;background:var(--tk-surface-2);border-radius:4px;display:flex;align-items:flex-end;overflow:hidden}
+.ch-fill{width:100%;min-height:2px;border-radius:4px;transition:height .4s}
+.ch-pct{font-size:var(--tk-fs-label);font-weight:700}
+.ch-name{width:100%;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.curve svg{width:100%;height:72px;display:block;margin-top:4px;background:#0d1420;border-radius:6px}
+.curve-x{display:flex;justify-content:space-between;font-size:var(--tk-fs-meta);color:var(--tk-dim)}
+.settings{justify-content:flex-start;gap:6px}
+.settings summary{cursor:pointer;list-style:none;padding:4px 0}
+.set-row{display:flex;align-items:center;gap:6px;margin-top:4px}
+.set-row .tk-name{flex:1;min-width:0}
+.set-row .tk-select{flex:1.4;width:auto;min-width:0}
+.pwm{width:64px;background:var(--tk-surface-2);border:1px solid var(--tk-border);border-radius:7px;padding:7px 6px;font-size:var(--tk-fs-label)}
+.test{background:var(--tk-on);border:1px solid var(--tk-border-on);color:var(--tk-accent);border-radius:7px;padding:7px 12px;font-size:var(--tk-fs-label);font-weight:600;cursor:pointer}
+CSS;
+        $js = <<<'JS'
+tk.on('Temperature', function (v) { tk.setText('temp_val', v > 0 ? v.toFixed(1).replace('.', ',') + ' °C' : '–'); });
+tk.on('Connectivity', function (v) {
+  tk.setText('conn_val', v ? 'Online' : 'Offline'); tk.setText('conn_icon', v ? '🟢' : '🔴');
+  tk.setClass('conn_card', 'tk-is-alarm', !v); tk.setClass('conn_status', 'tk-ok', v); tk.setClass('conn_status', 'tk-alarm', !v);
+});
+tk.on('Maintenance', function (v) { tk.setOn('Maintenance_card', v); tk.setClass('Maintenance_card', 'tk-is-warn', v); tk.setText('Maintenance_val', v ? 'Aktiv' : 'Aus'); });
+['Thunder', 'Moon', 'Clouds', 'Rain'].forEach(function (k) {
+  tk.on(k, function (v) { tk.setOn(k + '_card', v); tk.setText(k + '_val', v ? 'An' : 'Aus'); });
+});
+// Kanaele (CH<n>_Brightness) und Wetterprogramme (CH<n>_Program) – Schluessel je Kanal
+for (var i = 1; i <= 8; i++) (function (n) {
+  tk.on('CH' + n + '_Brightness', function (v) { var b = tk.el('bar' + n); if (b) b.style.height = v + '%'; tk.setText('pct' + n, v + ' %'); });
+  tk.on('CH' + n + '_Program', function (v) { var s = tk.el('prog' + n); if (s && document.activeElement !== s) s.value = v; });
+})(i);
+JS;
+        return $this->tkPage('Aquarium', '🐠', date('d.m. H:i'), "<div class=\"tk-grid\">{$body}</div>", $css, $js, 'null');
     }
 
     private function markersToSvgPoints(array $markers): string
